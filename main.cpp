@@ -1,10 +1,14 @@
-include <algorithm>
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <sstream>
 #include <string>
+#include <vector>
 
 class TTranslator {
+    using ui8 = uint8_t;
+    using TVector = std::vector<ui8>;
+
 public:
     std::string Translate(const std::string& from, const uint baseFrom, const uint baseTo) {
         uint powers[baseFrom] {0}; // logarithm[i] == log_{baseTo}(i)
@@ -15,7 +19,7 @@ public:
             }
         }
 
-        std::string baseFromMultiplier;
+        auto& baseFromMultiplier = Buf[6] = {};
         {
             auto power = baseTo;
             while (power < baseFrom) {
@@ -30,7 +34,7 @@ public:
 
             for (auto reminder = baseFrom;; power /= baseTo) {
                 if (power) {
-                    baseFromMultiplier.push_back(Digit2Char(reminder / power));
+                    baseFromMultiplier.push_back(reminder / power);
                     reminder %= power;
                 } else {
                     break;
@@ -38,18 +42,19 @@ public:
             }
         }
 
-        std::string res;
-        auto& multiplier = Buf[0] = "1";
+        auto& resVec = Buf[5] = {};
+
+        auto& multiplier = Buf[0] = {1};
 
         for (auto it = from.rbegin(); it != from.rend(); ++it) {
             if (auto rem = Char2Digit(*it, baseFrom)) {
                 Buf[1].clear();
                 for (auto power = powers[rem]; power; power /= baseTo) {
-                    Buf[1].push_back(Digit2Char(rem / power));
+                    Buf[1].push_back(rem / power);
                     rem %= power;
                 }
             } else {
-                Buf[1].assign(1, '0');
+                Buf[1].assign(1, 0);
             }
 
             if (it != from.rbegin()) {
@@ -63,20 +68,27 @@ public:
                 std::swap(Buf[1], Buf[2]);
             }
 
-            if (res.empty()) {
-                std::swap(res, Buf[2]);
+            if (resVec.empty()) {
+                std::swap(resVec, Buf[2]);
             } else {
-                Sum(res, Buf[2], baseTo, Buf[1]);
-                std::swap(res, Buf[1]);
+                Sum(resVec, Buf[2], baseTo, Buf[1]);
+                std::swap(resVec, Buf[1]);
             }
         }
 
-        RemoveLeadingZeros(res);
+        RemoveLeadingZeros(resVec);
+
+        std::string res;
+        res.resize(resVec.size());
+        std::transform(resVec.begin(), resVec.end(), res.begin(), [] (const auto digit) {
+            return Digit2Char(digit);
+        });
+
         return res;
     }
 
 private:
-    static constexpr uint Char2Digit(char c, const uint base) noexcept {
+    static constexpr ui8 Char2Digit(char c, const uint base) noexcept {
         if (isdigit(c)) {
             const auto d = c - '0';
             assert(d < base);
@@ -90,7 +102,7 @@ private:
         return d;
     }
 
-    static constexpr char Digit2Char(const uint num) noexcept {
+    static constexpr char Digit2Char(const ui8 num) noexcept {
         if (num < 10) {
             return '0' + num;
         } else {
@@ -98,7 +110,7 @@ private:
         }
     }
 
-    void Sum(const std::string& first, const std::string& second, const uint base, std::string& res) {
+    void Sum(const TVector& first, const TVector& second, const uint base, TVector& res) {
         res.clear();
         res.reserve(first.size() + second.size());
 
@@ -107,7 +119,7 @@ private:
         auto f = first.rbegin(), s = second.rbegin();
         const auto doIter = [&] (auto& v, auto& iter, const auto& str) {
             if (iter != str.rend()) {
-                v += Char2Digit(*iter, base);
+                v += *iter;
                 ++iter;
             }
             return iter != str.rend();
@@ -121,51 +133,50 @@ private:
             }
 
             carry = v / base;
-            res.push_back(Digit2Char(v % base));
+            res.push_back(v % base);
         };
 
         if (carry) {
             assert(carry < base);
-            res.push_back(Digit2Char(carry));
+            res.push_back(carry);
         }
 
         std::reverse(res.begin(), res.end());
     }
 
-    void Multiply(const std::string& str, const char ch, const uint base, std::string& res, const uint padding = 0) {
+    void Multiply(const TVector& vec, const ui8 m, const uint base, TVector& res, const uint padding = 0) {
         res.clear();
-        res.reserve(str.size() + 1);
+        res.reserve(vec.size() + 1);
 
-        const auto m = Char2Digit(ch, base);
         uint carry = 0;
-        for (auto it = str.rbegin(); it != str.rend(); ++it) {
-            carry += Char2Digit(*it, base) * m;
-            res.push_back(Digit2Char(carry % base));
+        for (auto it = vec.rbegin(); it != vec.rend(); ++it) {
+            carry += *it * m;
+            res.push_back(carry % base);
             carry /= base;
             assert(carry < base);
         }
 
         if (carry) {
             assert(carry < base);
-            res.push_back(Digit2Char(carry));
+            res.push_back(carry);
         }
 
         std::reverse(res.begin(), res.end());
-        res.insert(res.end(), padding, '0');
+        res.insert(res.end(), padding, 0);
     }
 
-    void RemoveLeadingZeros(std::string& str) {
-        const auto leadingZeros = std::find_if(str.begin(), str.end(), [&] (char c) {
-            return c != '0';
+    void RemoveLeadingZeros(TVector& vec) {
+        const auto leadingZeros = std::find_if(vec.begin(), vec.end(), [&] (auto c) {
+            return c != 0;
         });
-        if (leadingZeros == str.end()) {
-            str.assign(1, '0');
+        if (leadingZeros == vec.end()) {
+            vec.assign(1, 0);
         } else {
-            str.erase(str.begin(), leadingZeros);
+            vec.erase(vec.begin(), leadingZeros);
         }
     }
 
-    void Multiply(const std::string& first, const std::string& second, const uint base, std::string& res) {
+    void Multiply(const TVector& first, const TVector& second, const uint base, TVector& res) {
         res.clear();
 
         for (auto i = 0u; i < first.size(); ++i) {
@@ -182,7 +193,7 @@ private:
     }
 
 private:
-    std::array<std::string, 5> Buf;
+    std::array<TVector, 7> Buf;
 };
 
 int main() {
